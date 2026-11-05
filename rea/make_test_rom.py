@@ -6,7 +6,11 @@ Two sprites overlap the BG: front at x64, behind at x96. SATB uses VDC DMA.
 """
 from pathlib import Path
 import struct,json,hashlib,argparse
-parser=argparse.ArgumentParser();parser.add_argument("--width",type=int,choices=[256,320,512],default=256);parser.add_argument("--sprite-stress",action="store_true");opt=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument("--width",type=int,choices=[256,320,512],default=256)
+variants=parser.add_mutually_exclusive_group()
+variants.add_argument("--sprite-stress",action="store_true")
+variants.add_argument("--catalog-stress",action="store_true")
+opt=parser.parse_args()
 class Asm:
  def __init__(self): self.code=bytearray();self.labels={};self.fix=[]
  def emit(self,*v): self.code.extend(v)
@@ -43,12 +47,24 @@ for r,v in [(5,0),(9,0),(10,0x0202),(11,0x0300+(opt.width//8-1)),(12,0x0f02),(13
 a.store(0x0400,{256:0,320:1,512:2}[opt.width]);a.store(0x0402,0);a.store(0x0403,0)
 a.transfer('palette',0x0404,1024)
 # pattern 64 at VRAM word $400, sprite pattern $1000, SATB $1800
-for word,label,length in [(0,'bat',2048),(0x400,'patterns',64),(0x1000,'sprite',128),(0x1800,'satb',512)]:
+for word,label,length in [(0,'bat',2048),(0x400,'patterns',64),(0x1000,'sprite',256 if opt.catalog_stress else 128),(0x1800,'satb',512)]:
  a.vdc(0,word);a.emit(0x03,2);a.transfer(label,2,length)
 a.vdc(15,0x10);a.vdc(19,0x1800);a.vdc(6,128);a.vdc(5,0xcc)
 a.emit(0x58);a.label('idle');a.jump(0x4c,'idle')
-a.label('irq');a.emit(0x48,0xda);a.abs(0xad,0);a.emit(0x29,0x20);a.branch(0xf0,'raster')
+a.label('irq');a.emit(0x48,0xda);a.abs(0xad,0);a.emit(0x29,0x20)
+if opt.catalog_stress:
+ a.branch(0xd0,'vblank');a.jump(0x4c,'raster');a.label('vblank')
+else: a.branch(0xf0,'raster')
 a.abs(0xee,0x2010)
+if opt.catalog_stress:
+ # DMA takes effect on the next vblank. Slot 0 moves, alternates
+ # patterns, and disappears for four frames. Slot 1 stays at x144.
+ a.vdc(0,0x1801);a.emit(0x03,2)
+ a.abs(0xad,0x2010);a.emit(0x29,0x0f,0xc9,12);a.branch(0xb0,'hide_sprite')
+ a.emit(0x18,0x69,96);a.branch(0x80,'sprite_x')
+ a.label('hide_sprite');a.lda(0)
+ a.label('sprite_x');a.sta(2);a.emit(0x23,0)
+ a.abs(0xad,0x2010);a.emit(0x29,4,0x4a,0x09,0x80);a.sta(2);a.emit(0x23,0)
 # vblank end memory differs from both displayed palette phases
 a.store(0x0402,1);a.store(0x0403,0);a.store(0x0404,7);a.store(0x0405,0) # blue
 # restore scroll at vblank and poll pad using CLR/SEL handshake
@@ -75,9 +91,17 @@ for t in range(2):
 a.label('sprite')
 for plane in range(4):
  for y in range(16): a.word(0xffff if plane==0 else 0)
+if opt.catalog_stress:
+ for plane in range(4):
+  for y in range(16): a.word(0xaaaa if plane==0 else 0)
 a.label('satb')
 for i in range(64):
- for v in ([64+48,32-8+i*12,0x80,0x80] if opt.sprite_stress and i<18 else [0,0,0,0] if opt.sprite_stress else [64+48,32+64+i*32,0x80,0x80 if i==0 else 0] if i<2 else [0,0,0,0]): a.word(v)
-rom=a.finish();out=Path(__file__).parent/'test-output';out.mkdir(exist_ok=True);p=out/('rea-diagnostic-stress.pce' if opt.sprite_stress else 'rea-diagnostic.pce' if opt.width==256 else f'rea-diagnostic-{opt.width}.pce');p.write_bytes(rom)
+ if opt.catalog_stress: sprite=[64+48,32+64+i*80,0x80,0x80] if i<2 else [0,0,0,0]
+ elif opt.sprite_stress: sprite=[64+48,32-8+i*12,0x80,0x80] if i<18 else [0,0,0,0]
+ else: sprite=[64+48,32+64+i*32,0x80,0x80 if i==0 else 0] if i<2 else [0,0,0,0]
+ for v in sprite: a.word(v)
+suffix='-catalog' if opt.catalog_stress else '-stress' if opt.sprite_stress else ''
+if opt.width!=256 and not opt.sprite_stress: suffix+=f'-{opt.width}'
+rom=a.finish();out=Path(__file__).parent/'test-output';out.mkdir(exist_ok=True);p=out/f'rea-diagnostic{suffix}.pce';p.write_bytes(rom)
 (out/'diagnostic-symbols.json').write_text(json.dumps(a.labels,indent=2))
 print(json.dumps({'rom':str(p),'bytes':len(rom),'sha256':hashlib.sha256(rom).hexdigest()}))

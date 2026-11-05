@@ -1,4 +1,4 @@
-param([string]$Rom,[string]$Movie,[int]$Port=8920,[int]$StreamPort=8921,[switch]$Diagnostic,[switch]$Mute,[switch]$Wait,[switch]$Paused)
+param([string]$Rom,[string]$Movie,[int]$Port=8920,[int]$StreamPort=8921,[switch]$Diagnostic,[switch]$Mute,[switch]$Wait,[switch]$Paused,[string]$Python='C:/Users/Chris/AppData/Local/Python/bin/python.exe')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
 $emulator = Join-Path $root 'emulator'
@@ -7,7 +7,8 @@ if ($existing.Count) { throw "This TURBO REAPER installation is already running 
 $tool = Join-Path $emulator 'ExternalTools/REA.Turbo.dll'
 if (!(Test-Path $tool)) { & "$PSScriptRoot/Build.ps1" }
 if ($Diagnostic) {
- & 'C:/Users/Chris/AppData/Local/Python/bin/python.exe' "$PSScriptRoot/make_test_rom.py"
+ if (!(Test-Path -LiteralPath $Python -PathType Leaf) -or $Python -match '[\\/]WindowsApps[\\/]') { throw 'Supply -Python with the full path to an installed Python 3 executable for the diagnostic.' }
+ & $Python "$PSScriptRoot/make_test_rom.py"
  if ($LASTEXITCODE -ne 0) { throw 'Diagnostic ROM generation failed' }
  $Rom = Join-Path $PSScriptRoot 'test-output/rea-diagnostic.pce'
 }

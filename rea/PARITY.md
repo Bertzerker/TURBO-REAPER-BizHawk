@@ -7,6 +7,7 @@ Compared with current workspace NES/FCEUX, Genesis/BlastEm and SNES/BizHawk sour
 | Dark shell, one toolbar, graphics/inspector, drawers | UI | Current MIT SNES shell and shared visual tokens |
 | One-run raster views | UI/API output, one BG, admitted sprites, source | NES BG/OBJ; Genesis A/B/window/OBJ/source; SNES BG1–4/OBJ/main-sub; meanings differ |
 | Pattern/BAT/palette/SATB diagnostics | UI/API, memory-only labels | Console-specific diagnostics in all references |
+| Sprite and tile catalog | Named HuCard selectors, captured isolation, live and read-only BK2 follow, exact-frame comment attachments | Hardware locators and evidence classes are console-specific |
 | Pinned pixels, frozen/saved review, memory baseline | UI/API, finite renewable leases | Current SNES selection model, beyond dated review |
 | Execution / speed / bounded input | UI/API, 1–3600 frames, interrupt at frame boundary | Similar SNES/NES contracts; Genesis differs |
 | Persistent whole-machine checkpoints | UI/API, compatibility/hash sidecar | SNES persistent; NES session slots; Genesis native/movie-start workflow |

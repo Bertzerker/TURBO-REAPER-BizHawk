@@ -32,6 +32,16 @@ The 720×450 check exercises the effective layout size of a 1440×900 surface at
 
 User-supplied **R-Type (USA)** was inspected locally: exactly one 524288-byte HuCard member was extracted into ignored `roms/user-supplied/`, preserving the original archive. Native capture/composition passed at 336×234. Two checkpoint/input replays matched full state and output, and two BK2 replays matched at three 30-frame boundaries. Those game captures, ROM bytes, movie/state files and reports remain ignored/private. This is game-specific coverage, not universal compatibility or hardware-timing certification.
 
+## Sprite and tile catalog
+
+The original `--catalog-stress` fixture supplies a moving two-pattern SATB slot, a visually similar stationary slot, a deliberate disappearance and reappearance, and repeated BAT tiles under scanline palette and scroll changes. The catalog retained both sprite alternatives, rejected a stale edit and wrong-HuCard import, followed animation and motion, and required a fresh pick after the slot returned. The native harness checked render-time selector coordinates, right-edge BAT wrap, scroll, color and admitted sprite patterns at 256, 320 and 512 pixels. Turning catalog attribution off and on produced identical serialized core state and composite PNG.
+
+Four saved observations cover sprite and tile in live play at frame 3 and read-only replay at frame 7. Live captures survived eviction. Replay notes retained the pinned frame and input-row identity after advancing to frame 27. Two replays produced the same track and left the entire BK2 byte-for-byte unchanged. Two further notes were attached while replay was running, with playheads at frames 7 and 8 and saved captures at frame 3. After a catalog edit and cold server restart, all four original notes reopened with their original definitions, images and capture digests. The offline verifier passed all four ZIPs and checked the archived BK2s.
+
+In the final five-second continuous-play sample, the optimized tracker followed the selected repeated BAT occurrence on all 64 observations. Both phases averaged about 59 emulated frames per second. Observed capture copy p95 was 0.80 ms with catalog capture off and 0.84 ms while tracking. End-to-end observation p95 was 29.24 ms. The samples reported zero invalid packets, skipped producer captures or delivery drops. Stream history stayed at 16 packets and the active three tracker leases retained eight results. This was a short single-machine workload. Headless Chromium exercised pixel pick, catalog creation, isolation, follow, exact-frame bug attachment, return to live and opening saved sprite evidence with the emulator disconnected.
+
+The ignored `rea/test-output/catalog-lab/rea/test-output/catalog-report.json` records the native results and local bundle references. From a fresh isolated catalog fixture on ports 8930 and 8931, run `node ./rea/test/verify-catalog.mjs` and then `node ./rea/test/verify-catalog.mjs measure`. After restarting only the server against that same evidence directory, run `node ./rea/test/verify-catalog.mjs cold`.
+
 Reproduce:
 
 ```powershell

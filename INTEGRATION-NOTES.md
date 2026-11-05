@@ -1,6 +1,6 @@
 # Coordinator integration notes
 
-Product: **TURBO REAPER - BizHawk**. Repository: `Bertzerker/TURBO-REAPER-BizHawk` (private).
+Product: **TURBO REAPER - BizHawk**. Repository: `Bertzerker/TURBO-REAPER-BizHawk`.
 
 Owned tree: `tg16/`. Existing console installations and shared docs stayed read-only. The managed observer, bridge, loopback server and production workbench now run. Native diagnostics cover raster palettes, priority/transparency, input, compatible persistent state, BK2 replay/cold restart, 256/320/512 geometry, sprite limits and observer integrity. Reports and screenshots remain local under ignored `rea/test-output/`.
 

@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: MIT
-param([switch]$Harness,[switch]$Native,[switch]$Sustained)
+param([switch]$Harness,[switch]$Native,[switch]$Sustained,[string]$Python='C:/Users/Chris/AppData/Local/Python/bin/python.exe')
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot
 New-Item -ItemType Directory -Force "$PSScriptRoot/test-output" | Out-Null
 & node --test --test-reporter=junit "$PSScriptRoot/test/workbench.test.mjs" | Set-Content "$PSScriptRoot/test-output/protocol-junit.xml"
 if($LASTEXITCODE){throw 'Protocol/persistence tests failed; see test-output/protocol-junit.xml'}
 if($Harness){
- $python='C:/Users/Chris/AppData/Local/Python/bin/python.exe'
+ if (!(Test-Path -LiteralPath $Python -PathType Leaf) -or $Python -match '[\\/]WindowsApps[\\/]') { throw 'Supply -Python with the full path to an installed Python 3 executable for the harness.' }
  foreach($width in @(256,320,512)){& $python "$PSScriptRoot/make_test_rom.py" --width $width;if($LASTEXITCODE){throw 'Diagnostic generation failed'}}
  & $python "$PSScriptRoot/make_test_rom.py" --sprite-stress
  foreach($mode in @('','-320','-512','-stress')){

@@ -28,9 +28,15 @@ $refs = @('mscorlib','System','System.Core','System.Drawing','System.Windows.For
 $refs += "/reference:$framework/Facades/netstandard.dll"
 $refs += @('BizHawk.Client.Common','BizHawk.Common','BizHawk.Emulation.Common','BizHawk.Emulation.Cores','BizHawk.WinForms.Controls','BizHawk.Bizware.Graphics','Newtonsoft.Json') | ForEach-Object { "/reference:$original/dll/$_.dll" }
 $refs += "/reference:$original/EmuHawk.exe"
+$portable = "$PSScriptRoot/native/bin/portable"
+New-Item -ItemType Directory -Force -Path $portable | Out-Null
+$cecilRuntime = "$PSScriptRoot/native/cecil/lib/net40/Mono.Cecil.dll"
+Copy-Item -LiteralPath $cecilRuntime -Destination $portable -Force
+& dotnet $compiler /nologo /target:exe /langversion:latest /optimize+ "/out:$portable/TurboPatchCore.exe" "/reference:$framework/mscorlib.dll" "/reference:$framework/System.dll" "/reference:$framework/System.Core.dll" "/reference:$cecilRuntime" "$PSScriptRoot/native/PatchCore.cs"
+if ($LASTEXITCODE -ne 0) { throw 'Guarded patcher compilation failed' }
 & dotnet $compiler /nologo /target:library /langversion:latest /optimize+ "/out:$emulator/dll/TURBO.REA.Observer.dll" @refs "$PSScriptRoot/native/PceRasterObserver.cs"
 if ($LASTEXITCODE -ne 0) { throw 'Observer compilation failed' }
-& dotnet run --project "$PSScriptRoot/native/PatchCore.csproj" -- "$original/dll/BizHawk.Emulation.Cores.dll" "$emulator/dll/TURBO.REA.Observer.dll" "$emulator/dll/BizHawk.Emulation.Cores.dll"
+& "$portable/TurboPatchCore.exe" "$original/dll/BizHawk.Emulation.Cores.dll" "$emulator/dll/TURBO.REA.Observer.dll" "$emulator/dll/BizHawk.Emulation.Cores.dll"
 if ($LASTEXITCODE -ne 0) { throw 'Guarded core patch failed' }
 if (Test-Path "$PSScriptRoot/REATurbo.cs") {
  $refs += "/reference:$emulator/dll/TURBO.REA.Observer.dll"

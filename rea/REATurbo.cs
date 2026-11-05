@@ -45,6 +45,9 @@ namespace REATurbo {
   readonly ConcurrentQueue<CaptureWork> captures = new ConcurrentQueue<CaptureWork>();
   readonly ConcurrentQueue<CaptureWork> free = new ConcurrentQueue<CaptureWork>();
   long sequence, skipped;
+  long continuity;
+  string replayPath,replayDigest;
+  ulong replayRerecords;
   int running, steps, every=1;
   int stepStart,stepRequested;
   volatile bool transportConnected;
@@ -53,7 +56,10 @@ namespace REATurbo {
   string stepCommand;
   RasterCapture raster;
   bool rasterEnabled=Environment.GetEnvironmentVariable("REA_TG16_RASTER_CAPTURE")!="0";
+  bool catalogEnabled=true;
   IEmuClientApi watchedClient;
+  PCEngine identifiedCore;
+  string mappedRomDigest;
   long lastRenderGeneration=-1;
   int lastRenderFrame=-1;
   Stopwatch clock = Stopwatch.StartNew();
@@ -61,7 +67,16 @@ namespace REATurbo {
   string stepLastSnapshot;
   public Inspector() {
    for(int i=0;i<6;i++)free.Enqueue(new CaptureWork());
+   StartPosition=FormStartPosition.Manual;
    ClientSize = new Size(580,160); Controls.Add(status);
+   Load += (_,__) => {
+    var owner=Owner??MainForm as Form;
+    if(owner==null)return;
+    var area=Screen.FromControl(owner).WorkingArea;
+    int x=owner.Right+16;
+    if(x+Width>area.Right)x=owner.Left-Width-16;
+    Location=new Point(Math.Max(area.Left,Math.Min(x,area.Right-Width)),Math.Max(area.Top,Math.Min(owner.Top,area.Bottom-Height)));
+   };
    string nativePath=Path.GetFullPath(Path.Combine(root,"../emulator/dll/BizHawk.Emulation.Cores.dll"));
    using(var sha=SHA256.Create())nativeIdentity=BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(nativePath).Concat(File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(nativePath),"TURBO.REA.Observer.dll"))).Concat(File.ReadAllBytes(typeof(Inspector).Assembly.Location)).ToArray())).Replace("-","");
    timer.Tick += (_,__) => Tick();
@@ -69,6 +84,7 @@ namespace REATurbo {
    FormClosed += (_,__) => { closed=true; timer.Stop(); ready.Set();if(watchedClient!=null)watchedClient.StateLoaded-=StateLoaded; };
   }
   public override void Restart() {
+   continuity++; replayPath=null; replayDigest=null;
    raster=null;
    lastRenderGeneration=-1;lastRenderFrame=-1;WatchStates();
    // Frame numbers can rewind; session + sequence remains unique.
@@ -79,7 +95,7 @@ namespace REATurbo {
    if(watchedClient!=null)watchedClient.StateLoaded-=StateLoaded;
    watchedClient=_apiContainer.EmuClient;watchedClient.StateLoaded+=StateLoaded;
   }
-  void StateLoaded(object sender,StateLoadedEventArgs e) {raster?.Invalidate();lastRenderFrame=-1;}
+  void StateLoaded(object sender,StateLoadedEventArgs e) {continuity++;raster?.Invalidate();lastRenderFrame=-1;}
   void Tick() {
    if (_apiContainer==null || Emulator==null) return;
    while (commands.TryDequeue(out var c)) {
@@ -91,7 +107,7 @@ namespace REATurbo {
   public override void UpdateValues(ToolFormUpdateType type) {
    if (_apiContainer==null) return;
    if (type==ToolFormUpdateType.PreFrame || type==ToolFormUpdateType.FastPreFrame) {
-    if(Emulator is PCEngine pc) { raster=PceRasterObserver.Get(pc.VDC1);raster.Enabled=rasterEnabled; }
+    if(Emulator is PCEngine pc) { raster=PceRasterObserver.Get(pc.VDC1);raster.Enabled=rasterEnabled;raster.CatalogEnabled=catalogEnabled; }
     if (steps>0 && stepInput!=null) _apiContainer.Joypad.Set(stepInput);
     running=1;
    }
@@ -174,7 +190,7 @@ namespace REATurbo {
     case "movie-save":
      if(!_apiContainer.Movie.IsLoaded()) throw new InvalidOperationException("No active movie");
      _apiContainer.Movie.Save(); break;
-    case "movie-stop": _apiContainer.Movie.Stop(true); break;
+    case "movie-stop": _apiContainer.Movie.Stop(true); continuity++;replayPath=null;replayDigest=null;break;
     case "play": {
      if(_apiContainer.Movie.IsLoaded()) {
       if(_apiContainer.Movie.Mode()=="RECORD")throw new InvalidOperationException("Save/stop the recording before loading another movie");
@@ -182,8 +198,10 @@ namespace REATurbo {
      }
      string path=LocalPath("movies", (string)c["name"], ".bk2");
      if(!File.Exists(path)) throw new IOException("Movie does not exist");
+     string digest=new FileInfo(path).Length<=64*1024*1024?FileHash(path):null;
      _apiContainer.Movie.SetReadOnly(true);
      if(!_apiContainer.Movie.PlayFromStart(path)) throw new InvalidOperationException("Movie load failed");
+     continuity++;replayPath=path;replayDigest=digest!=null&&FileHash(path)==digest?digest:null;replayRerecords=_apiContainer.Movie.GetRerecordCount();
      _apiContainer.EmuClient.Pause(); break;
     }
     case "checkpoint-save": {
@@ -210,6 +228,9 @@ namespace REATurbo {
     case "raster-enable":
      if(c["enabled"]?.Type!=JTokenType.Boolean)throw new ArgumentException("enabled must be a boolean");
      rasterEnabled=(bool)c["enabled"];if(raster!=null){raster.Enabled=rasterEnabled;raster.Invalidate();}break;
+    case "catalog-capture":
+     if(c["enabled"]?.Type!=JTokenType.Boolean)throw new ArgumentException("enabled must be a boolean");
+     catalogEnabled=(bool)c["enabled"];continuity++;raster?.Invalidate();break;
     case "state-hash": {
      if(!_apiContainer.EmuClient.IsPaused())throw new InvalidOperationException("Pause before hashing core state");
      using(var sha=SHA256.Create()) Reply(c,true,new {frame=Emulator.Frame,sha256=BitConverter.ToString(sha.ComputeHash(Emulator.AsStatable().CloneSavestate())).Replace("-","")});
@@ -225,7 +246,14 @@ namespace REATurbo {
    }
    Capture(true); Reply(c,true,new {frame=Emulator.Frame,snapshot=stepLastSnapshot,paused=_apiContainer.EmuClient.IsPaused()});
   }
-  static string FileHash(string path){using(var sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(path))).Replace("-","");}
+  static string FileHash(string path){using(var sha=SHA256.Create())using(var stream=File.OpenRead(path))return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","");}
+  string MappedRomDigest(PCEngine core) {
+   if(ReferenceEquals(core,identifiedCore))return mappedRomDigest;
+   var bytes=Field(core,"RomData") as byte[];
+   using(var sha=SHA256.Create())mappedRomDigest=bytes==null?null:BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-","");
+   identifiedCore=core;
+   return mappedRomDigest;
+  }
   string SyncIdentity() {
    var method=Emulator.GetType().GetMethod("GetSyncSettings");
    if(method==null) throw new InvalidOperationException("Core does not expose synchronization settings");
@@ -254,9 +282,15 @@ namespace REATurbo {
     if(valid){if(raster.Generation!=lastRenderGeneration){lastRenderGeneration=raster.Generation;lastRenderFrame=Emulator.Frame;}else if(Emulator.Frame!=lastRenderFrame)valid=false;}
     var video=Emulator.AsVideoProvider();int w=video.BufferWidth,h=video.BufferHeight,n=w*h;
     if(w<1||w>1024||h<1||h>512)throw new InvalidOperationException("Invalid video dimensions");
-    work.Width=w;work.Height=h;work.Valid=valid;work.Reason=valid?null:raster.Reason??"No new complete render";work.Generation=raster.Generation;
+    valid=valid&&raster.Width==w&&raster.Height==h;
+    work.Width=w;work.Height=h;work.Valid=valid;work.Reason=valid?null:raster.Reason??"No new complete render with matching geometry";work.Generation=raster.Generation;
     work.Prepare(n);Array.Copy(video.GetVideoBuffer(),work.Video,n);
-    if(valid){Array.Copy(raster.Background,work.Background,n);Array.Copy(raster.Sprites,work.Sprites,n);Array.Copy(raster.Source,work.Source,n);Array.Copy(raster.SpriteId,work.SpriteId,n);Array.Copy(raster.PaletteIndex,work.PaletteIndex,n);}
+    work.Catalog=valid&&catalogEnabled&&raster.CatalogEnabled;
+    if(valid){
+     Array.Copy(raster.Background,work.Background,n);Array.Copy(raster.Sprites,work.Sprites,n);Array.Copy(raster.Source,work.Source,n);
+     if(work.Catalog)work.CopyCatalog(raster,n,h);
+     else {Array.Copy(raster.SpriteId,work.SpriteId,n);Array.Copy(raster.PaletteIndex,work.PaletteIndex,n);}
+    }
     var domains=new List<object>();
     foreach(var d in MemoryDomains.Where(d=>d.Size>0&&d.Size<=262144&&new[]{"Main Memory","VRAM1","VCEPalette","Battery RAM","Cart Battery RAM"}.Contains(d.Name))){
      if(!work.Memory.TryGetValue(d.Name,out var bytes)||bytes.Length!=d.Size)work.Memory[d.Name]=bytes=new byte[d.Size];
@@ -268,10 +302,10 @@ namespace REATurbo {
     foreach(var entry in new[]{new {name="SATB",words=work.Sat},new {name="VDC Registers",words=pc.VDC1.Registers}}){var data=new byte[entry.words.Length*2];for(int i=0;i<entry.words.Length;i++){data[i*2]=(byte)entry.words[i];data[i*2+1]=(byte)(entry.words[i]>>8);}domains.Add(new {name=entry.name,size=data.Length,offset=work.MemoryLength,endian="Little",wordSize=2,unit="byte",sampling="completed-frame boundary"});work.Blocks.Add(data);work.MemoryLength+=data.Length;}
     string id=session+"-"+(++sequence);stepLastSnapshot=id;bool movie=_apiContainer.Movie.IsLoaded();
     work.Header=new Dictionary<string,object>{
-     ["type"]="frame",["schema"]=1,["id"]=id,["session"]=session,["sequence"]=sequence,["frame"]=Emulator.Frame,
-     ["rom"]=new {name=Game.Name,hash=Game.Hash},["core"]=Emulator.GetType().FullName,["version"]="2.11.1",["deterministic"]=Emulator.DeterministicEmulation,["mode"]="standard HuCard",
+     ["type"]="frame",["schema"]=1,["id"]=id,["session"]=session,["sequence"]=sequence,["frame"]=Emulator.Frame,["continuity"]=continuity,
+     ["rom"]=new {name=Game.Name,hash=Game.Hash,mappedSha256=MappedRomDigest(pc)},["core"]=Emulator.GetType().FullName,["version"]="2.11.1",["deterministic"]=Emulator.DeterministicEmulation,["mode"]="standard HuCard",
      ["paused"]=_apiContainer.EmuClient.IsPaused(),["lag"]=Emulator.AsInputPollable().IsLagFrame,
-     ["movie"]=new {loaded=movie,mode=_apiContainer.Movie.Mode(),filename=movie?_apiContainer.Movie.Filename():"",length=movie?_apiContainer.Movie.Length():0,timelineFrame=movie&&Emulator.Frame<=_apiContainer.Movie.Length()?(int?)Emulator.Frame:null,readOnly=_apiContainer.Movie.GetReadOnly(),rerecords=movie?_apiContainer.Movie.GetRerecordCount():0,startsFromCheckpoint=movie&&_apiContainer.Movie.StartsFromSavestate()},
+     ["movie"]=new {loaded=movie,mode=_apiContainer.Movie.Mode(),filename=movie?_apiContainer.Movie.Filename():"",length=movie?_apiContainer.Movie.Length():0,timelineFrame=movie&&Emulator.Frame<=_apiContainer.Movie.Length()?(int?)Emulator.Frame:null,readOnly=_apiContainer.Movie.GetReadOnly(),rerecords=movie?_apiContainer.Movie.GetRerecordCount():0,startsFromCheckpoint=movie&&_apiContainer.Movie.StartsFromSavestate(),sourceSha256=movie&&_apiContainer.Movie.GetReadOnly()&&_apiContainer.Movie.Mode()=="PLAY"&&_apiContainer.Movie.GetRerecordCount()==replayRerecords&&string.Equals(replayPath,_apiContainer.Movie.Filename(),StringComparison.OrdinalIgnoreCase)?replayDigest:null},
      ["playback"]=new {speedPercent=Config.SpeedPercent},["identity"]=new {sync=SyncIdentity(),native=nativeIdentity},
      ["execution"]=new {pendingStep=steps>0,requestedFrames=stepRequested,completedFrames=steps>0?Emulator.Frame-stepStart:0},
      ["inputs"]=_apiContainer.Joypad.GetWithMovie(),["buttons"]=Emulator.ControllerDefinition.BoolButtons.ToArray(),["domains"]=domains,

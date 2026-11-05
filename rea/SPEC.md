@@ -14,6 +14,10 @@ Copied domains avoid both System Bus domains: Main Memory 8192 bytes, VRAM1 6553
 
 Identity covers HuCard checksum, exact core/observer/tool digest, core/version, sync/render settings and game-database options. Checkpoints add SHA256 state sidecars. Standard HuCards require no firmware. Machine state includes the selected core's CPU/MPR/timer/interrupt/VDC/VCE/DMA/PSG/input/writable-storage serialization. Inspection snapshots never substitute for it.
 
+Catalog selectors use SHA-256 of the core's mapped HuCard bytes and selector schema 1. Sprite samples record the admitted SATB slot, effective 16×16 pattern, palette index, size/flip/priority flags and color mode. The background observer records the BAT words, wrapped vertical coordinate and horizontal scroll used by each rendered scanline, at up to 512 active pixels. Background isolation uses only captured nontransparent samples. End-of-frame BAT, SATB and VRAM remain separately labeled diagnostics. Catalog attribution measures the PCEHawk scanline renderer.
+
+Follow uses the same SATB slot or BAT word with nearby captured screen coordinates and matching selectors. The motion bound is 8–24 pixels per observed frame interval, and continuity requires adjacent capture sequence IDs and at most four emulated frames between captures. Competing nearby sprite copies, conflicting occurrences of the same BAT word, changes to sprite flags, missing-and-returning locators, capture gaps, state loads and replay restarts can require a re-pick. The tracker retains two recent results and one pin per viewer, up to eight viewers, for 120 seconds per active lease. Its pinned observations are independent of the live machine.
+
 All listeners bind loopback. Host/Origin, POST token, WebSocket origin, request sizes, packet layout and IDs are checked. Native producers authenticate with a per-launch token. No API accepts arbitrary filesystem paths, shell commands or memory writes. Controls acknowledge requested/completed frames; Pause can interrupt a step at a completed-frame boundary. Read-only movies reject scripted buttons. General checkpoints require stopped movies. A timeout means unknown outcome and is never retried automatically.
 
 | Route | Contract |
@@ -27,7 +31,9 @@ All listeners bind loopback. Host/Origin, POST token, WebSocket origin, request 
 | GET `/api/logical` | Captured MPR mapping, safe base RAM byte or explicit unavailable reason |
 | GET `/api/rom` | Verified raw HuCard bytes/SHA256, bounded immutable ranges, no implied mapper mapping |
 | GET `/api/pixel`, `/api/sprites`, `/api/image` | Evidence-bound samples, hardware bounds and lossless PNG |
-| POST `/api/control` | pause/resume/step/speed; record/play/movie-save/movie-stop/movie-inputs; checkpoint-save/load; tastudio; capture-rate; raster-enable; state-hash; shutdown |
+| GET `/api/catalog`, `/api/catalog/pick` | Per-HuCard catalog and evidence-seeded selector from an exact capture ID |
+| POST `/api/catalog`, `/api/catalog/observe` | Revision-checked edits and imports, all matches, pick/advance, exact observation pin, release |
+| POST `/api/control` | pause/resume/step/speed; record/play/movie-save/movie-stop/movie-inputs; checkpoint-save/load; tastudio; capture-rate; raster-enable; catalog-capture; state-hash; shutdown |
 | GET `/api/movies`, `/api/checkpoints` | Native BK2 and compatible persistent-state catalogs |
 | GET/POST `/api/annotations`, POST `/capture` | Persistent exact evidence, revision-checked notes with prior revisions |
 | GET `/api/annotations/<id>/{pixel,memory,image,capture.bin,snapshot.json,...}` | Saved inspection after eviction/restart, independent of machine |
@@ -35,5 +41,7 @@ All listeners bind loopback. Host/Origin, POST token, WebSocket origin, request 
 | GET `/api/metrics`, POST `/api/viewer` | Measured machine/capture/unique-viewer rates and memory/queue counts |
 
 Comments preserve immutable packets and matching local movie bytes where available. No movie archive is claimed when its version cannot be matched. Drafts are browser localStorage; revisions/captures persist on disk. Exports are inspection bundles. State-started BK2 files independently embed native starting state; general checkpoints are not silently exported. Full native packet retention supports saved pixel/memory inspection after server restart without rewinding the machine.
+
+A tracked comment uses a viewer ticket to save an exact capture and immutable entry revision. The observation JSON includes the selector and capture SHA-256, evidence class, bounds or last confirmed instance, and replay context. A replay loaded through the bridge is archived only when the local BK2 SHA-256 still matches the file verified at playback start. The offline verifier checks the observation against the capture, comment and archived BK2 in the manifest.
 
 Unavailable projects: CD/SuperGrafx/System Cards/Arcade Card/controller extensions, bounded REA CPU trace/watch, joined fetch provenance, ROM-specific game collisions, alternate cores and browser timeline/branch editing. Native TAStudio and core-dependent debugger tools remain separate. Mock protocol tests do not prove native correctness. See [PARITY](PARITY.md) and [VALIDATION](VALIDATION.md) for exact coverage.

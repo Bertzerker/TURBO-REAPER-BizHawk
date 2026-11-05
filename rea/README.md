@@ -17,6 +17,7 @@ The original 8 KiB diagnostic boots paused and needs no firmware. Step ten frame
 & 'C:/Users/Chris/AppData/Local/Python/bin/python.exe' ./rea/make_test_rom.py --width 320
 & 'C:/Users/Chris/AppData/Local/Python/bin/python.exe' ./rea/make_test_rom.py --width 512
 & 'C:/Users/Chris/AppData/Local/Python/bin/python.exe' ./rea/make_test_rom.py --sprite-stress
+& 'C:/Users/Chris/AppData/Local/Python/bin/python.exe' ./rea/make_test_rom.py --catalog-stress
 ```
 
 In BizHawk use **Config → Controllers** for host bindings. Standard descriptors are P1 directions, Select, Run, B1 (I) and B2 (II). Execution experiments inject emulated input for 1–3600 frames and release unspecified buttons. Pause interrupts at a completed-frame boundary. Read-only BK2 playback owns input. Multitap/six-button topologies and CD/SuperGrafx are unavailable REA modes until separately implemented and tested.
@@ -24,6 +25,15 @@ In BizHawk use **Config → Controllers** for host bindings. Standard descriptor
 Selecting a pixel pins one capture before lookup. Freeze does not pause the machine. Memory offsets are bytes: VRAM1 and VCEPalette use the core's Big-endian presentation of words; SATB and VDC Registers use explicit Little-endian word copies. Logical addresses require captured MPR context. The ROM route reads a single immutable authorized raw HuCard only when its SHA1 matches the capture, records SHA256, and excludes those bytes from default exports.
 
 Movies use native BK2 files, beginning at power-on or a complete current-state checkpoint. The Movies drawer records, saves, stops, loads/restarts and inspects input rows. Movie frame N follows consumed input row N−1. TAStudio is a native window, not a browser timeline editor. General checkpoints are separate persistent `.State` files with compatibility and integrity sidecars; stop active movies before saving/restoring them.
+
+## Sprite & tile catalog
+
+1. Inspect a pixel in **Composite**, **Sprites** or **Background**. The Selection panel pins the capture and shows its coordinates. Open **Sprite & tile catalog**, give the picked sample a name and select **Add to catalog**.
+2. Inspect another animation pattern or piece and select **Append picked selector** on the existing entry. Use labels and notes to organize entries. Typed selectors are alternatives and can omit palette or flags to match variations.
+3. Select **Show all matches**, choose a SATB slot or BAT occurrence and select **Follow instance**. The preview shows the captured samples at their original screen positions. Return to live resumes inspection, with the machine's playback state independent of the preview.
+4. Select **Pin tracked frame**, then **Attach to comment** or **Attach to bug comment**. The machine can continue playing. Saved review and investigation ZIPs preserve the original selector revision, coordinates, native packet and isolation PNG. A read-only BK2 loaded from the Movies drawer adds its verified local file version and input-row index.
+
+The catalog uses SHA-256 of the HuCard bytes loaded into the core. Local files live under `rea/catalog/`; the catalog drawer can reload, import and export bounded JSON. A follow selection stays in the viewer session. **Missing or occluded** means the selected locator has no admitted match. **Lost** and **Ambiguous** require a fresh pick. BAT diagnostic entries use completed-frame memory and support isolation only.
 
 Comments preserve the displayed native packet, boundary memory and immutable matching local movie bytes when available. Markdown, validated JSON and strict sanitized Mermaid previews use bundled local assets. Browser drafts recover after reload, discard is explicit, and stale saves return 409. Saved inspection never restores the machine. Exports include SHA256 manifests, graphics, memory, metadata, note revisions and archived BK2 bytes where available. State-started BK2 files contain their native starting state. General checkpoints are not silently exported as inspection evidence.
 

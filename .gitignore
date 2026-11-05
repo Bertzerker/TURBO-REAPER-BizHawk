@@ -3,6 +3,7 @@ upstream/
 roms/
 rea/session/
 rea/annotations/
+rea/catalog/
 rea/checkpoints/
 rea/movies/
 rea/test-output/

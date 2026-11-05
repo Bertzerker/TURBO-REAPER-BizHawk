@@ -10,13 +10,45 @@ export function unpack(packet) {
  if(!Array.isArray(meta.domains)||meta.domains.length>32||!meta.atlas||!Array.isArray(meta.atlas.panels)||meta.atlas.panels.length>16)throw Error('Invalid descriptors');
  for(const p of meta.atlas.panels)if(![p.x,p.y,p.width,p.height].every(Number.isSafeInteger)||p.x<0||p.y<0||p.width<1||p.height<1||p.x+p.width>meta.atlas.width||p.y+p.height>meta.atlas.height)throw Error('Invalid panel bounds');
  let end=0;
- for(const block of [...meta.domains,meta.atlas,meta.tiles,...(meta.raster?[meta.raster]:[])]) {
+ for(const block of [...meta.domains,meta.atlas,meta.tiles,...(meta.raster?[meta.raster]:[]),...(meta.tileRows?[meta.tileRows]:[])]) {
   const size=block.length??block.size;
   if(!Number.isSafeInteger(block.offset)||!Number.isSafeInteger(size)||size<0||block.offset!==end)throw Error('Invalid block layout');
   end+=size;
  }
  if(end!==payload.length || meta.atlas.length!==meta.atlas.width*meta.atlas.height*4)throw Error('Invalid capture length');
+ if(meta.raster?.valid){
+  const {width,height,length}=meta.raster;
+  if(!Number.isInteger(width)||width<1||width>1024||!Number.isInteger(height)||height<1||height>512||length!==width*height*4)throw Error('Invalid native raster geometry');
+  if(meta.tileRows&&(meta.tileRows.rowWords!==70||meta.tileRows.length!==height*140))throw Error('Invalid native BAT rows');
+ }
  return {meta,payload,packet};
+}
+export function spriteSample(s,x,y){
+ const r=s.meta.raster;
+ if(!r?.valid||x<0||y<0||x>=r.width||y>=r.height)return null;
+ const word=s.payload.readUInt32LE(r.offset+(y*r.width+x)*4);
+ if(r.spriteEncoding==='pce-obj-v2')return word&64?{slot:word&63,paletteIndex:(word>>>7)&511,pattern:(word>>>16)&511,flags:word>>>25}:null;
+ return (word&65535)===65535?null:{slot:word&65535,paletteIndex:word>>>16};
+}
+
+export function tileRow(s,y){
+ const rows=s.meta.tileRows,r=s.meta.raster;
+ if(!rows||!r?.valid||y<0||y>=r.height)return null;
+ const row=rows.offset+y*140;
+ const width=s.payload.readUInt16LE(row),scroll=s.payload.readUInt16LE(row+2);
+ const vertical=s.payload.readUInt16LE(row+4),columns=s.payload.readUInt16LE(row+6);
+ if(width<1||width>Math.min(r.width,512)||scroll>1023||vertical>511||![32,64,128].includes(columns))return null;
+ return {offset:row+8,width,scroll,vertical,columns,y};
+}
+export function tileSpan(s,row,x){
+ const {offset,scroll,vertical,columns,y}=row;
+ const span=((scroll&7)+x)>>>3,word=s.payload.readUInt16LE(offset+span*2);
+ const batWord=(vertical>>>3)*columns+(((scroll>>>3)+span)&(columns-1));
+ return {pattern:word&2047,palette:word>>>12,batWord,x:span*8-(scroll&7),y:y-(vertical&7),scrollX:scroll,scrollY:vertical};
+}
+export function tileSample(s,x,y){
+ const row=tileRow(s,y);
+ return row&&x>=0&&x<row.width?tileSpan(s,row,x):null;
 }
 export class Framer {
  constructor(onPacket){this.onPacket=onPacket;this.parts=[];this.length=0;this.expected=null;this.prefix=Buffer.alloc(4);this.prefixCount=0;}
@@ -48,9 +80,9 @@ export function inspectPixel(s,view,x,y){
  const at=s.meta.atlas.offset+((p.y+y)*s.meta.atlas.width+p.x+x)*4,b=s.payload.subarray(at,at+4),r=s.meta.raster;
  let nativeSamples=null;
  if(r?.valid&&r.length&&['composite','bg1','obj','source'].includes(view)){
-  const word=s.payload.readUInt32LE(r.offset+(y*r.width+x)*4),id=(word&65535)<<16>>16;
+  const sprite=spriteSample(s,x,y);
   const sp=s.meta.atlas.panels.find(p=>p.view==='source'),sourceWord=sp?s.payload.readUInt32LE(s.meta.atlas.offset+((sp.y+y)*s.meta.atlas.width+sp.x+x)*4)>>>0:0;
-  nativeSamples={compositeSource:({[0xff92d6b2]:'background',[0xffe4be7c]:'sprite',[0xff334251]:'backdrop'})[sourceWord]??'unrecorded border',generation:r.generation,spriteIndex:id<0?null:id,spritePaletteIndex:id<0?null:word>>>16,sampling:'admitted sprite before background priority; raster-time palette RGB',exactFetchAddress:null};
+  nativeSamples={compositeSource:({[0xff92d6b2]:'background',[0xffe4be7c]:'sprite',[0xff334251]:'backdrop'})[sourceWord]??'unrecorded border',generation:r.generation,spriteIndex:sprite?.slot??null,spritePaletteIndex:sprite?.paletteIndex??null,spritePattern:sprite?.pattern??null,spriteFlags:sprite?.flags??null,backgroundTile:tileSample(s,x,y),sampling:'admitted sprite before background priority; raster-time palette RGB',exactFetchAddress:null};
  }
  return {snapshot:s.meta.id,frame:s.meta.frame,view,x,y,native:{x,y,framebufferWidth:s.meta.geometry?.width,cropTop:s.meta.geometry?.topLine},supported:p.supported,kind:p.kind,rgb:[b[2],b[1],b[0]],alpha:b[3],nativeSamples,provenance:null,provenanceReason:'Exact VRAM fetch and CPU/DMA provenance unavailable; PCEHawk scanline/cache renderer',spriteBounds:['obj','composite'].includes(view)?s.meta.sprites.filter(o=>x>=o.x&&x<o.x+o.width&&y>=o.y&&y<o.y+o.height):undefined};
 }

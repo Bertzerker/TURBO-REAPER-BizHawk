@@ -27,7 +27,18 @@ class NativeHarness {
    times.Sort();byte[] video=new byte[pc.VDC1.BufferWidth*pc.VDC1.BufferHeight*4];Buffer.BlockCopy(pc.VDC1.GetVideoBuffer(),0,video,0,video.Length);
    string state=Hash(pc.AsStatable().CloneSavestate()),output=Hash(video);
    if(expectedState!=null&&(expectedState!=state||expectedOutput!=output))throw new Exception("Observation changed machine state/output");expectedState=state;expectedOutput=output;
-   rows.Add(new {enabled,elapsedMs=clock.Elapsed.TotalMilliseconds,p50=times[times.Count/2],p95=times[(int)(times.Count*.95)],state,output,valid=f.Valid,width=pc.VDC1.BufferWidth,height=pc.VDC1.BufferHeight});
+   bool catalogCoordinates=false;
+   if(enabled&&f.Valid&&!args[0].Contains("stress")){
+    int w=f.Width,row30=30*RasterCapture.BatRowWords,row100=100*RasterCapture.BatRowWords,last=w/8-1;
+    if(f.BatRows[row30]!=w||f.BatRows[row100]!=w||
+       f.BatRows[row30+1]!=0||f.BatRows[row100+1]!=8||
+       (f.BatRows[row30+4+last]&2047)!=65||(f.BatRows[row100+4+last]&2047)!=64||
+       f.Background[30*w+w-8]!=unchecked((int)0xffff0000)||f.Background[100*w+w-8]!=unchecked((int)0xff00ff00)||
+       (f.SpriteSource[48*w+64]&0x01ff007f)!=((64u<<16)|64u)||
+       (f.SpriteSource[48*w+96]&0x01ff007f)!=((64u<<16)|65u))throw new Exception("Catalog coordinates or render-time selectors mismatch");
+    catalogCoordinates=true;
+   }
+   rows.Add(new {enabled,elapsedMs=clock.Elapsed.TotalMilliseconds,p50=times[times.Count/2],p95=times[(int)(times.Count*.95)],state,output,valid=f.Valid,width=pc.VDC1.BufferWidth,height=pc.VDC1.BufferHeight,catalogCoordinates});
   }
   object stress=null;
   if(args[0].Contains("stress"))using(var pc=Create(rom)){
@@ -35,7 +46,7 @@ class NativeHarness {
    var f=PceRasterObserver.Get(pc.VDC1);int limited=f.SpriteId.Max();if(limited!=15)throw new Exception("16-sprite renderer limit mismatch");
    pc.Settings.SpriteLimit=false;pc.FrameAdvance(NullController.Instance,true,true);int unlimited=f.SpriteId.Max();if(unlimited!=15)throw new Exception("Unknown-ROM forced sprite limit mismatch");
    if(f.SpriteId[47*pc.VDC1.BufferWidth]!=0)throw new Exception("Left-clipped sprite capture mismatch");
-   pc.Settings.ShowOBJ1=false;pc.FrameAdvance(NullController.Instance,true,true);if(f.SpriteId.Max()!=-1||!f.Valid)throw new Exception("Hidden sprites must be a valid blank layer");
+   pc.Settings.ShowOBJ1=false;pc.FrameAdvance(NullController.Instance,true,true);if(f.SpriteId.Max()!=-1||f.SpriteSource.Any(value=>value!=0)||!f.Valid)throw new Exception("Hidden sprites must be a valid blank layer");
    stress=new {limited,afterDisablingSetting=unlimited,forcedForUnknownRom=true,leftClipping=true,validBlank=true};
   }
   Console.WriteLine(JsonConvert.SerializeObject(new {rom=Hash(rom),frames=1800,rows,stress}));
