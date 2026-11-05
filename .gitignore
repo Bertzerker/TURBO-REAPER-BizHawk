@@ -14,3 +14,8 @@ rea/bin/
 rea/obj/
 *.log
 *.user
+
+rea/ui-deps/node_modules/
+rea/ui-deps/.cache/
+rea/transport-error.txt
+rea/capture-error.txt

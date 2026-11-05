@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.png binary
+*.pce binary
+*.zip binary
+rea/public/vendor/* -whitespace
