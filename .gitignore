@@ -1,0 +1,16 @@
+emulator/
+upstream/
+roms/
+rea/session/
+rea/annotations/
+rea/checkpoints/
+rea/movies/
+rea/test-output/
+rea/native/cecil/
+rea/native/*.zip
+rea/native/bin/
+rea/native/obj/
+rea/bin/
+rea/obj/
+*.log
+*.user
